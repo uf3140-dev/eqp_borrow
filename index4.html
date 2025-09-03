@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>器材歸還</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 1rem;
+        }
+        .clickable-item {
+            cursor: pointer;
+            transition: background-color 0.15s ease-in-out, transform 0.15s ease-in-out;
+            border-radius: 9999px;
+        }
+        .clickable-item:hover {
+            background-color: #e0e7ff;
+        }
+        .clickable-item.selected {
+            background-color: #93c5fd;
+            border-color: #2563eb;
+            transform: scale(1.05);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .message-success {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        .message-error {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        .message-info {
+            background-color: #e0e7ff;
+            color: #3730a3;
+        }
+        select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url('data:image/svg+xml;utf8,<svg fill="none" viewBox="0 0 24 24" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>');
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 1.5em 1.5em;
+            padding-right: 2.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md md:max-w-xl lg:max-w-2xl xl:max-w-4xl">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8 text-center">器材歸還</h1>
+        
+        <!-- 借用人下拉選單 -->
+        <div class="mb-6">
+            <label for="borrowerSelect" class="block text-sm font-medium text-gray-700 mb-2">選擇借用人</label>
+            <select id="borrowerSelect" class="w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                <option value="" disabled selected>載入中...</option>
+            </select>
+        </div>
+
+        <!-- 器材清單容器 -->
+        <div id="equipmentListContainer" class="hidden">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">借用器材清單</h2>
+            <div id="equipmentList" class="flex flex-wrap gap-2 p-4 bg-gray-100 rounded-lg">
+                <p class="text-center text-gray-500 w-full">請先選擇一位借用人。</p>
+            </div>
+        </div>
+
+        <!-- 歸還按鈕 -->
+        <div class="mt-8 text-center hidden" id="returnButtonContainer">
+            <button id="returnButton"
+                    class="w-full sm:w-auto px-6 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150 ease-in-out">
+                歸還器材
+            </button>
+        </div>
+
+        <!-- 訊息顯示區塊 -->
+        <div id="messageBox" class="mt-6 p-4 rounded-md hidden"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const borrowerSelect = document.getElementById('borrowerSelect');
+            const equipmentListContainer = document.getElementById('equipmentListContainer');
+            const equipmentList = document.getElementById('equipmentList');
+            const returnButton = document.getElementById('returnButton');
+            const returnButtonContainer = document.getElementById('returnButtonContainer');
+            const messageBox = document.getElementById('messageBox');
+
+            // !!! IMPORTANT: 請將 'YOUR_BASEROW_API_KEY' 替換為您的實際 Baserow API 金鑰 !!!
+            const baserowApiKey = '29E0NGXsq1rXu9p8fW0rPj6CRnu6mg38';
+            const baserowApiUrl = 'https://api.baserow.io/api/database/rows/table/622062/';
+
+            let borrowedData = []; // 儲存從 API 獲取的借用資料
+
+            // 顯示訊息的函數
+            function showMessage(message, type) {
+                messageBox.innerHTML = message;
+                messageBox.classList.remove('hidden', 'message-success', 'message-error', 'message-info');
+                if (type === 'success') {
+                    messageBox.classList.add('message-success');
+                } else if (type === 'error') {
+                    messageBox.classList.add('message-error');
+                } else if (type === 'info') {
+                    messageBox.classList.add('message-info');
+                }
+                messageBox.classList.remove('hidden');
+            }
+
+            // 從 Baserow API 載入借用中的器材清單
+            async function loadBorrowedEquipmentList() {
+                borrowerSelect.innerHTML = '<option value="" disabled selected>載入中...</option>';
+                
+                try {
+                    // 篩選出狀態為「借用」的器材
+                    const response = await fetch(`${baserowApiUrl}?user_field_names=true&filter__status__equal=借用`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Token ${baserowApiKey}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error(`HTTP Error: ${response.status} ${response.statusText}`, errorText);
+                        throw new Error(`HTTP 錯誤! 狀態: ${response.status} ${response.statusText}`);
+                    }
+
+                    const data = await response.json();
+                    borrowedData = data.results || [];
+                    
+                    renderBorrowerDropdown();
+
+                } catch (error) {
+                    console.error('載入借用器材清單時發生錯誤:', error);
+                    showMessage(`載入失敗: ${error.message}`, 'error');
+                    borrowerSelect.innerHTML = '<option value="" disabled selected>載入失敗</option>';
+                }
+            }
+
+            // 渲染借用人下拉選單
+            function renderBorrowerDropdown() {
+                const uniqueBorrowers = new Set(borrowedData.map(item => item.borrower));
+                borrowerSelect.innerHTML = '<option value="" disabled selected>請選擇借用人</option>';
+                
+                if (uniqueBorrowers.size === 0) {
+                    borrowerSelect.innerHTML = '<option value="" disabled selected>目前沒有借用人</option>';
+                    return;
+                }
+
+                Array.from(uniqueBorrowers).sort().forEach(borrowerName => {
+                    const option = document.createElement('option');
+                    option.value = borrowerName;
+                    option.textContent = borrowerName;
+                    borrowerSelect.appendChild(option);
+                });
+            }
+
+            // 渲染特定借用人的器材清單
+            function renderEquipmentForBorrower(borrowerName) {
+                equipmentListContainer.classList.remove('hidden');
+                returnButtonContainer.classList.remove('hidden');
+                equipmentList.innerHTML = '';
+
+                const borrowerEquipments = borrowedData.filter(item => item.borrower === borrowerName);
+                
+                if (borrowerEquipments.length === 0) {
+                    equipmentList.innerHTML = '<p class="text-center text-gray-500 w-full">該借用人目前沒有借用器材。</p>';
+                    return;
+                }
+
+                borrowerEquipments.forEach(equipment => {
+                    const eqpSpan = document.createElement('span');
+                    eqpSpan.className = 'clickable-item px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium';
+                    eqpSpan.textContent = equipment.eqp_no;
+                    eqpSpan.dataset.equipmentId = equipment.id;
+                    equipmentList.appendChild(eqpSpan);
+                });
+            }
+
+            // 處理下拉選單變更
+            borrowerSelect.addEventListener('change', function() {
+                const selectedBorrower = this.value;
+                if (selectedBorrower) {
+                    renderEquipmentForBorrower(selectedBorrower);
+                } else {
+                    equipmentListContainer.classList.add('hidden');
+                    returnButtonContainer.classList.add('hidden');
+                }
+            });
+
+            // 處理點擊器材以選擇歸還
+            equipmentList.addEventListener('click', function(event) {
+                const clickedItem = event.target.closest('.clickable-item');
+                if (clickedItem) {
+                    clickedItem.classList.toggle('selected');
+                }
+            });
+
+            // 處理歸還按鈕點擊
+            returnButton.addEventListener('click', async function() {
+                const selectedItems = Array.from(document.querySelectorAll('.clickable-item.selected'));
+                if (selectedItems.length === 0) {
+                    showMessage('請選擇要歸還的器材！', 'error');
+                    return;
+                }
+
+                showMessage('歸還處理中...', 'info');
+                returnButton.disabled = true;
+
+                const successfulReturns = [];
+                const failedReturns = [];
+
+                for (const item of selectedItems) {
+                    const equipmentId = item.dataset.equipmentId;
+                    const equipmentNo = item.textContent;
+
+                    // 這裡的 patchData 物件正是您所要求的更新內容
+                    const patchData = {
+                        'status': '在庫',
+                        'borrower': null,
+                        'borrow_date': null,
+                    };
+
+                    try {
+                        const response = await fetch(`${baserowApiUrl}${equipmentId}/?user_field_names=true`, {
+                            method: 'PATCH',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Token ${baserowApiKey}`
+                            },
+                            body: JSON.stringify(patchData)
+                        });
+
+                        if (!response.ok) {
+                            const errorData = await response.json();
+                            console.error(`Failed to return equipment ID ${equipmentId}:`, errorData);
+                            failedReturns.push(`器材 ${equipmentNo} (更新失敗)`);
+                        } else {
+                            successfulReturns.push(`器材 ${equipmentNo}`);
+                        }
+                    } catch (error) {
+                        console.error('歸還時發生錯誤:', error);
+                        failedReturns.push(`器材 ${equipmentNo} (連線錯誤)`);
+                    }
+                }
+
+                // 顯示總結訊息
+                const messages = [];
+                if (successfulReturns.length > 0) {
+                    messages.push(`✅ 成功歸還 ${successfulReturns.length} 項器材：`);
+                    messages.push(...successfulReturns.map(msg => `- ${msg}`));
+                }
+                if (failedReturns.length > 0) {
+                    messages.push(`❌ 歸還失敗 ${failedReturns.length} 項器材：`);
+                    messages.push(...failedReturns.map(msg => `- ${msg}`));
+                }
+
+                if (failedReturns.length === 0) {
+                    showMessage(messages.join('<br>'), 'success');
+                } else {
+                    showMessage(messages.join('<br>'), 'error');
+                }
+
+                returnButton.disabled = false;
+                
+                // 歸還完成後重新載入借用清單
+                loadBorrowedEquipmentList();
+                equipmentList.innerHTML = '<p class="text-center text-gray-500 w-full">請先選擇一位借用人。</p>';
+                equipmentListContainer.classList.add('hidden');
+                returnButtonContainer.classList.add('hidden');
+            });
+
+            // 頁面載入時自動載入借用清單
+            loadBorrowedEquipmentList();
+        });
+    </script>
+</body>
+</html>
