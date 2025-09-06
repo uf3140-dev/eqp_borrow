@@ -137,7 +137,7 @@
 
             <!-- 提交按鈕 -->
             <button type="submit"
-                    class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                     class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
                 送出申請
             </button>
         </form>
@@ -218,35 +218,46 @@
                 availableEquipmentList.innerHTML = '<p class="text-gray-500 text-center py-4">載入中...</p>';
                 selectedEquipmentList.innerHTML = '<p class="text-gray-500 text-center py-4">載入中...</p>'; // 確保已選清單也顯示載入中
 
-                // Baserow API URL 用於獲取可用器材清單 (table/622062)
-                // 新增 filter__status__equal=在庫 參數來篩選狀態為「在庫」的器材
-                const baserowApiGetUrl = 'https://api.baserow.io/api/database/rows/table/622062/?user_field_names=true&filter__status__equal=在庫'; 
-                
+                const baseApiUrl = 'https://api.baserow.io/api/database/rows/table/622062/?user_field_names=true&filter__status__equal=在庫';
+                const totalPages = 10;
+                const pageSize = 100;
+                allAvailableEquipments = []; // 重置為空陣列
+
                 try {
-                    const response = await fetch(baserowApiGetUrl, {
-                        method: 'GET',
-                        headers: {
-                            'Authorization': `Token ${baserowApiKey}`, // 添加 Authorization 標頭
-                            'Content-Type': 'application/json'
+                    // 使用迴圈來分頁獲取資料
+                    for (let page = 1; page <= totalPages; page++) {
+                        const paginatedUrl = `${baseApiUrl}&page=${page}&size=${pageSize}`;
+                        const response = await fetch(paginatedUrl, {
+                            method: 'GET',
+                            headers: {
+                                'Authorization': `Token ${baserowApiKey}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            console.error(`HTTP Error on page ${page}: ${response.status} ${response.statusText}`, errorText);
+                            throw new Error(`HTTP 錯誤! 狀態: ${response.status} ${response.statusText}`);
                         }
-                    });
 
-                    if (!response.ok) {
-                        const errorText = await response.text();
-                        console.error(`HTTP Error during fetch: ${response.status} ${response.statusText}`, errorText);
-                        throw new Error(`HTTP 錯誤! 狀態: ${response.status} ${response.statusText}`);
+                        const data = await response.json();
+                        
+                        // 將當前頁的結果添加到總陣列中
+                        if (data.results) {
+                            const equipmentsOnPage = data.results.map(item => ({ id: item.id, eqp_no: item.eqp_no }));
+                            allAvailableEquipments.push(...equipmentsOnPage);
+                        }
+                        
+                        // 如果沒有下一頁（next 為 null）或沒有足夠的結果，則跳出迴圈
+                        if (!data.next || data.results.length < pageSize) {
+                             console.log(`頁數 ${page} 已是最後一頁。`);
+                             break;
+                        }
                     }
-                    const data = await response.json(); // 解析 JSON 回應
 
-                    if (data.error) {
-                        showMessage(`載入器材清單失敗: ${data.error}`, 'error');
-                        availableEquipmentList.innerHTML = '<p class="text-red-500 text-center py-4">載入失敗</p>';
-                        return;
-                    }
-
-                    // 從 Baserow API 的 results 陣列中提取器材名稱與 row_id
-                    allAvailableEquipments = data.results.map(item => ({ id: item.id, eqp_no: item.eqp_no })); 
                     renderEquipmentLists(); // 初始渲染
+                    showMessage(`已成功載入 ${allAvailableEquipments.length} 筆器材資料`, 'success');
                 } catch (error) {
                     console.error('載入器材清單時發生錯誤:', error);
                     let errorMessage = '未知錯誤';
@@ -259,6 +270,7 @@
                     availableEquipmentList.innerHTML = `<p class="text-red-500 text-center py-4">載入失敗: ${errorMessage}</p>`;
                 }
             }
+
 
             // 頁面載入時載入器材清單
             loadEquipmentList();
